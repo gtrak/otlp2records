@@ -70,7 +70,9 @@ pub use arrow::{
     ServiceGroupedBatches,
 };
 pub use decode::{
-    decode_logs, decode_metrics, decode_traces, DecodeMetricsResult, InputFormat, SkippedMetrics,
+    count_skipped_metric_data_points, decode_logs, decode_metrics, decode_traces,
+    normalise_json_value, normalize_json_bytes, DecodeMetricsResult, InputFormat, MetricSkipCounts,
+    SkippedMetrics,
 };
 pub use error::{Error, Result};
 #[cfg(feature = "parquet")]
