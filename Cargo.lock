@@ -1509,6 +1509,7 @@ dependencies = [
  "chrono-tz",
  "const-hex",
  "getrandom 0.2.16",
+ "indexmap",
  "once_cell",
  "opentelemetry-proto",
  "ordered-float 4.6.0",
