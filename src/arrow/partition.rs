@@ -49,11 +49,6 @@ impl ServiceGroupedBatches {
             .map(|pb| (pb.service_name.as_ref(), &pb.batch))
     }
 
-    /// Consume and iterate over partitioned batches
-    pub fn into_iter(self) -> impl Iterator<Item = PartitionedBatch> {
-        self.batches.into_iter()
-    }
-
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.batches.is_empty()
@@ -65,6 +60,15 @@ impl ServiceGroupedBatches {
     }
 }
 
+impl IntoIterator for ServiceGroupedBatches {
+    type Item = PartitionedBatch;
+    type IntoIter = std::vec::IntoIter<PartitionedBatch>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.batches.into_iter()
+    }
+}
+
 /// Partitioned metrics result, with each metric type grouped by service.
 #[derive(Debug, Default)]
 pub struct PartitionedMetrics {
@@ -72,6 +76,10 @@ pub struct PartitionedMetrics {
     pub gauge: ServiceGroupedBatches,
     /// Sum metrics grouped by service
     pub sum: ServiceGroupedBatches,
+    /// Histogram metrics grouped by service
+    pub histogram: ServiceGroupedBatches,
+    /// Exponential histogram metrics grouped by service
+    pub exp_histogram: ServiceGroupedBatches,
     /// Metrics that were skipped during processing
     pub skipped: SkippedMetrics,
 }

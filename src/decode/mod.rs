@@ -90,20 +90,24 @@ pub fn decode_logs(bytes: &[u8], format: InputFormat) -> Result<Vec<Value>, Deco
             if looks_like_json(bytes) {
                 match logs::decode_json(bytes) {
                     Ok(values) => Ok(values),
-                    Err(json_err) => logs::decode_protobuf(bytes).map_err(|proto_err| {
-                        DecodeError::Unsupported(format!(
-                            "json decode failed: {}; protobuf fallback failed: {}",
-                            json_err, proto_err
-                        ))
-                    }),
+                    Err(json_err) => {
+                        // Try JSONL if JSON failed (e.g., multiple JSON objects)
+                        match decode_jsonl(bytes, logs::decode_json) {
+                            Ok(values) => Ok(values),
+                            Err(_jsonl_err) => logs::decode_protobuf(bytes).map_err(|proto_err| {
+                                DecodeError::Unsupported(format!(
+                                    "json decode failed: {json_err}; protobuf fallback failed: {proto_err}"
+                                ))
+                            }),
+                        }
+                    }
                 }
             } else {
                 match logs::decode_protobuf(bytes) {
                     Ok(values) => Ok(values),
                     Err(proto_err) => logs::decode_json(bytes).map_err(|json_err| {
                         DecodeError::Unsupported(format!(
-                            "protobuf decode failed: {}; json fallback failed: {}",
-                            proto_err, json_err
+                            "protobuf decode failed: {proto_err}; json fallback failed: {json_err}"
                         ))
                     }),
                 }
@@ -142,20 +146,26 @@ pub fn decode_traces(bytes: &[u8], format: InputFormat) -> Result<Vec<Value>, De
             if looks_like_json(bytes) {
                 match traces::decode_json(bytes) {
                     Ok(values) => Ok(values),
-                    Err(json_err) => traces::decode_protobuf(bytes).map_err(|proto_err| {
-                        DecodeError::Unsupported(format!(
-                            "json decode failed: {}; protobuf fallback failed: {}",
-                            json_err, proto_err
-                        ))
-                    }),
+                    Err(json_err) => {
+                        // Try JSONL if JSON failed (e.g., multiple JSON objects)
+                        match decode_jsonl(bytes, traces::decode_json) {
+                            Ok(values) => Ok(values),
+                            Err(_jsonl_err) => {
+                                traces::decode_protobuf(bytes).map_err(|proto_err| {
+                                    DecodeError::Unsupported(format!(
+                                        "json decode failed: {json_err}; protobuf fallback failed: {proto_err}"
+                                    ))
+                                })
+                            }
+                        }
+                    }
                 }
             } else {
                 match traces::decode_protobuf(bytes) {
                     Ok(values) => Ok(values),
                     Err(proto_err) => traces::decode_json(bytes).map_err(|json_err| {
                         DecodeError::Unsupported(format!(
-                            "protobuf decode failed: {}; json fallback failed: {}",
-                            proto_err, json_err
+                            "protobuf decode failed: {proto_err}; json fallback failed: {json_err}"
                         ))
                     }),
                 }
@@ -187,7 +197,7 @@ pub fn decode_traces(bytes: &[u8], format: InputFormat) -> Result<Vec<Value>, De
 /// # Skipped Metrics
 ///
 /// The following are skipped and tracked in the returned [`DecodeMetricsResult::skipped`]:
-/// - Histogram, ExponentialHistogram, and Summary metric types (not supported)
+/// - Summary metric types (deprecated in OTLP spec)
 /// - Data points with non-finite values (NaN, Infinity)
 /// - Data points with missing values
 ///
@@ -204,20 +214,26 @@ pub fn decode_metrics(
             if looks_like_json(bytes) {
                 match metrics::decode_json(bytes) {
                     Ok(values) => Ok(values),
-                    Err(json_err) => metrics::decode_protobuf(bytes).map_err(|proto_err| {
-                        DecodeError::Unsupported(format!(
-                            "json decode failed: {}; protobuf fallback failed: {}",
-                            json_err, proto_err
-                        ))
-                    }),
+                    Err(json_err) => {
+                        // Try JSONL if JSON failed (e.g., multiple JSON objects)
+                        match decode_metrics_jsonl(bytes) {
+                            Ok(values) => Ok(values),
+                            Err(_jsonl_err) => {
+                                metrics::decode_protobuf(bytes).map_err(|proto_err| {
+                                    DecodeError::Unsupported(format!(
+                                        "json decode failed: {json_err}; protobuf fallback failed: {proto_err}"
+                                    ))
+                                })
+                            }
+                        }
+                    }
                 }
             } else {
                 match metrics::decode_protobuf(bytes) {
                     Ok(values) => Ok(values),
                     Err(proto_err) => metrics::decode_json(bytes).map_err(|json_err| {
                         DecodeError::Unsupported(format!(
-                            "protobuf decode failed: {}; json fallback failed: {}",
-                            proto_err, json_err
+                            "protobuf decode failed: {proto_err}; json fallback failed: {json_err}"
                         ))
                     }),
                 }
@@ -281,8 +297,6 @@ fn decode_metrics_jsonl(bytes: &[u8]) -> Result<DecodeMetricsResult, DecodeError
         all_values.extend(result.values);
 
         // Merge skipped counts
-        combined_skipped.histograms += result.skipped.histograms;
-        combined_skipped.exponential_histograms += result.skipped.exponential_histograms;
         combined_skipped.summaries += result.skipped.summaries;
         combined_skipped.nan_values += result.skipped.nan_values;
         combined_skipped.infinity_values += result.skipped.infinity_values;
@@ -348,7 +362,7 @@ mod tests {
     fn decode_logs_jsonl() {
         let line1 = r#"{"resourceLogs":[{"resource":{},"scopeLogs":[{"scope":{},"logRecords":[{"timeUnixNano":"123","severityNumber":9}]}]}]}"#;
         let line2 = r#"{"resourceLogs":[{"resource":{},"scopeLogs":[{"scope":{},"logRecords":[{"timeUnixNano":"456","severityNumber":13}]}]}]}"#;
-        let jsonl = format!("{}\n{}", line1, line2);
+        let jsonl = format!("{line1}\n{line2}");
 
         let result = decode_logs(jsonl.as_bytes(), InputFormat::Jsonl);
         assert!(result.is_ok());
@@ -359,7 +373,7 @@ mod tests {
     #[test]
     fn decode_logs_jsonl_empty_lines() {
         let line1 = r#"{"resourceLogs":[{"resource":{},"scopeLogs":[{"scope":{},"logRecords":[{"timeUnixNano":"123"}]}]}]}"#;
-        let jsonl = format!("\n{}\n\n", line1);
+        let jsonl = format!("\n{line1}\n\n");
 
         let result = decode_logs(jsonl.as_bytes(), InputFormat::Jsonl);
         assert!(result.is_ok());
@@ -378,7 +392,7 @@ mod tests {
     #[test]
     fn decode_traces_jsonl() {
         let line1 = r#"{"resourceSpans":[{"resource":{},"scopeSpans":[{"scope":{},"spans":[{"traceId":"00000000000000000000000000000001","spanId":"0000000000000001","name":"span1","startTimeUnixNano":"100","endTimeUnixNano":"200"}]}]}]}"#;
-        let jsonl = format!("{}\n", line1);
+        let jsonl = format!("{line1}\n");
 
         let result = decode_traces(jsonl.as_bytes(), InputFormat::Jsonl);
         assert!(result.is_ok());
@@ -390,7 +404,7 @@ mod tests {
     fn decode_metrics_jsonl() {
         let line1 = r#"{"resourceMetrics":[{"resource":{},"scopeMetrics":[{"scope":{},"metrics":[{"name":"test","gauge":{"dataPoints":[{"timeUnixNano":"100","asDouble":1.0}]}}]}]}]}"#;
         let line2 = r#"{"resourceMetrics":[{"resource":{},"scopeMetrics":[{"scope":{},"metrics":[{"name":"test2","gauge":{"dataPoints":[{"timeUnixNano":"200","asDouble":2.0}]}}]}]}]}"#;
-        let jsonl = format!("{}\n{}", line1, line2);
+        let jsonl = format!("{line1}\n{line2}");
 
         let result = decode_metrics(jsonl.as_bytes(), InputFormat::Jsonl);
         assert!(result.is_ok());

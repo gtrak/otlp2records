@@ -10,6 +10,68 @@ use std::{env, fs, path::Path};
 
 fn main() {
     compile_vrl_scripts();
+
+    // Generate C header when ffi feature is enabled
+    #[cfg(feature = "ffi")]
+    generate_c_header();
+}
+
+/// Generate C FFI header using cbindgen
+#[cfg(feature = "ffi")]
+fn generate_c_header() {
+    let crate_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let crate_path = Path::new(&crate_dir);
+
+    // Output to include/ directory in crate root
+    let include_dir = crate_path.join("include");
+    fs::create_dir_all(&include_dir).ok();
+
+    let output_file = include_dir.join("otlp2records_ffi.h");
+
+    // Rerun if ffi.rs changes
+    println!("cargo:rerun-if-changed=src/ffi.rs");
+
+    let config = cbindgen::Config {
+        language: cbindgen::Language::C,
+        cpp_compat: true,
+        include_guard: Some("OTLP2RECORDS_FFI_H".to_string()),
+        no_includes: true,
+        includes: vec!["stdint.h".to_string(), "stddef.h".to_string()],
+        sys_includes: vec![],
+        after_includes: Some(
+            r#"
+#ifdef __cplusplus
+extern "C" {
+#endif
+"#
+            .to_string(),
+        ),
+        trailer: Some(
+            r#"
+#ifdef __cplusplus
+}
+#endif
+"#
+            .to_string(),
+        ),
+        documentation: true,
+        documentation_style: cbindgen::DocumentationStyle::C,
+        ..Default::default()
+    };
+
+    match cbindgen::Builder::new()
+        .with_crate(&crate_dir)
+        .with_config(config)
+        .generate()
+    {
+        Ok(bindings) => {
+            bindings.write_to_file(&output_file);
+            println!("cargo:note=Generated C header at {}", output_file.display());
+        }
+        Err(e) => {
+            println!("cargo:warning=Failed to generate C bindings: {e}");
+        }
+    }
 }
 
 /// Schema field parsed from VRL annotations
@@ -31,6 +93,8 @@ const VRL_SCRIPTS: &[(&str, &str)] = &[
     ("OTLP_TRACES", "otlp_traces.vrl"),
     ("OTLP_GAUGE", "otlp_gauge.vrl"),
     ("OTLP_SUM", "otlp_sum.vrl"),
+    ("OTLP_HISTOGRAM", "otlp_histogram.vrl"),
+    ("OTLP_EXP_HISTOGRAM", "otlp_exp_histogram.vrl"),
 ];
 
 fn compile_vrl_scripts() {
@@ -56,32 +120,25 @@ fn compile_vrl_scripts() {
         let vrl_path = vrl_dir.join(filename);
 
         // Rerun if this specific file changes
-        println!("cargo:rerun-if-changed=vrl/{}", filename);
+        println!("cargo:rerun-if-changed=vrl/{filename}");
 
         if !vrl_path.exists() {
-            println!(
-                "cargo:warning=VRL file not found: vrl/{} - generating placeholder",
-                filename
-            );
+            println!("cargo:warning=VRL file not found: vrl/{filename} - generating placeholder");
 
             // Generate placeholder source constant
             output.push_str(&format!(
-                "/// VRL source for {} (placeholder - file not found)\n",
-                filename
+                "/// VRL source for {filename} (placeholder - file not found)\n"
             ));
             output.push_str(&format!(
-                "pub const {}_SOURCE: &str = \"// Placeholder: vrl/{} not found\\n\";\n\n",
-                const_name, filename
+                "pub const {const_name}_SOURCE: &str = \"// Placeholder: vrl/{filename} not found\\n\";\n\n"
             ));
 
             // Generate placeholder schema
             output.push_str(&format!(
-                "/// Arrow schema for {} (placeholder - file not found)\n",
-                filename
+                "/// Arrow schema for {filename} (placeholder - file not found)\n"
             ));
             output.push_str(&format!(
-                "#[allow(dead_code)]\npub static {}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n",
-                const_name
+                "#[allow(dead_code)]\npub static {const_name}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n"
             ));
             output.push_str("    arrow::datatypes::Schema::empty()\n");
             output.push_str("});\n\n");
@@ -95,10 +152,7 @@ fn compile_vrl_scripts() {
 
         // Validate VRL syntax only (avoid stdlib/custom function resolution here).
         if let Err(e) = vrl::parser::parse(&source) {
-            println!(
-                "cargo:warning=VRL compilation warning for {}: {:?}",
-                filename, e
-            );
+            println!("cargo:warning=VRL compilation warning for {filename}: {e:?}");
             // Continue anyway - the error might be due to missing functions at build time
         }
 
@@ -107,16 +161,14 @@ fn compile_vrl_scripts() {
         // If the source contains "##, this would need an even longer delimiter
         if source.contains("\"##") {
             panic!(
-                "VRL source {} contains '\"##' which breaks raw string embedding. \
-                 Please avoid this sequence in VRL files.",
-                filename
+                "VRL source {filename} contains '\"##' which breaks raw string embedding. \
+                 Please avoid this sequence in VRL files."
             );
         }
-        output.push_str(&format!("/// VRL source for {}\n", filename));
+        output.push_str(&format!("/// VRL source for {filename}\n"));
         output.push_str("#[allow(dead_code)]\n");
         output.push_str(&format!(
-            "pub const {}_SOURCE: &str = r##\"{}\"##;\n\n",
-            const_name, source
+            "pub const {const_name}_SOURCE: &str = r##\"{source}\"##;\n\n"
         ));
 
         // Parse schema from VRL file
@@ -126,18 +178,15 @@ fn compile_vrl_scripts() {
             output.push_str(&generate_schema_defs(const_name, &schema));
         } else {
             println!(
-                "cargo:warning=No @schema annotation found in vrl/{} - generating empty schema",
-                filename
+                "cargo:warning=No @schema annotation found in vrl/{filename} - generating empty schema"
             );
 
             // Generate empty schema
             output.push_str(&format!(
-                "/// Arrow schema for {} (no @schema annotation found)\n",
-                filename
+                "/// Arrow schema for {filename} (no @schema annotation found)\n"
             ));
             output.push_str(&format!(
-                "#[allow(dead_code)]\npub static {}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n",
-                const_name
+                "#[allow(dead_code)]\npub static {const_name}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n"
             ));
             output.push_str("    arrow::datatypes::Schema::empty()\n");
             output.push_str("});\n\n");
@@ -149,7 +198,7 @@ fn compile_vrl_scripts() {
     output.push_str("#[allow(dead_code)]\n");
     output.push_str("pub const VRL_SCRIPT_NAMES: &[&str] = &[\n");
     for (const_name, _) in VRL_SCRIPTS {
-        output.push_str(&format!("    \"{}\",\n", const_name));
+        output.push_str(&format!("    \"{const_name}\",\n"));
     }
     output.push_str("];\n");
 
@@ -158,7 +207,7 @@ fn compile_vrl_scripts() {
     output.push_str("#[allow(dead_code)]\n");
     output.push_str("pub static ALL_SCHEMA_DEFS: &[crate::schemas::SchemaDef] = &[\n");
     for const_name in &schemas_generated {
-        output.push_str(&format!("    {}_SCHEMA_DEF,\n", const_name));
+        output.push_str(&format!("    {const_name}_SCHEMA_DEF,\n"));
     }
     output.push_str("];\n");
 
@@ -293,10 +342,7 @@ fn map_to_arrow_type(field_type: &str) -> String {
         "string" => "arrow::datatypes::DataType::Utf8".to_string(),
         "json" => "arrow::datatypes::DataType::Utf8".to_string(), // JSON stored as string
         other => {
-            println!(
-                "cargo:warning=Unknown schema type '{}', defaulting to Utf8",
-                other
-            );
+            println!("cargo:warning=Unknown schema type '{other}', defaulting to Utf8");
             "arrow::datatypes::DataType::Utf8".to_string()
         }
     }
@@ -311,8 +357,7 @@ fn generate_arrow_schema(const_name: &str, schema: &Schema) -> String {
         const_name, schema.name
     ));
     output.push_str(&format!(
-        "#[allow(dead_code)]\npub static {}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n",
-        const_name
+        "#[allow(dead_code)]\npub static {const_name}_SCHEMA: Lazy<arrow::datatypes::Schema> = Lazy::new(|| {{\n"
     ));
     output.push_str("    arrow::datatypes::Schema::new(vec![\n");
 
