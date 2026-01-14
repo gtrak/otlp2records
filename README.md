@@ -1,5 +1,7 @@
 # otlp2records
 
+[![Crates.io](https://img.shields.io/crates/v/otlp2records.svg)](https://crates.io/crates/otlp2records)
+
 Transform OTLP telemetry (logs, traces, metrics) into Arrow RecordBatches.
 
 A high-performance, WASM-compatible library for converting OpenTelemetry Protocol (OTLP) data to Apache Arrow format for efficient storage and querying.
