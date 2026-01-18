@@ -1,2 +1,5 @@
 /target
 rust-toolchain.toml
+
+# Parquet outputs from examples
+testdata/output/

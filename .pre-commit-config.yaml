@@ -4,7 +4,7 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ['--maxkb=100']
-        exclude: 'package-lock\.json'
+        exclude: 'package-lock\.json|^testdata/'
       - id: check-merge-conflict
       - id: check-toml
       - id: end-of-file-fixer
