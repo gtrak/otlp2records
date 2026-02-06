@@ -34,9 +34,9 @@ pub fn logs_schema() -> Schema {
 /// Returns the Arrow schema for OTLP trace spans.
 ///
 /// Schema fields:
-/// - timestamp: TimestampMillisecond (required)
-/// - end_timestamp: Int64 (required)
-/// - duration: Int64 (required)
+/// - timestamp: TimestampMicrosecond (required) - span start time
+/// - end_timestamp: Int64 (required) - span end time in microseconds
+/// - duration: Int64 (required) - span duration in microseconds
 /// - trace_id: Utf8 (optional)
 /// - span_id: Utf8 (optional)
 /// - parent_span_id: Utf8 (optional)

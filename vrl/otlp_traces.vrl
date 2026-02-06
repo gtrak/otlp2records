@@ -1,9 +1,9 @@
 # @schema spans
 # @description OTLP trace spans flattened for Arrow RecordBatch
 #
-# timestamp: timestamp, required, "Start time in milliseconds"
-# end_timestamp: int64, required, "End time in milliseconds"
-# duration: int64, required, "Duration in milliseconds"
+# timestamp: timestamp, required, "Start time in microseconds"
+# end_timestamp: int64, required, "End time in microseconds"
+# duration: int64, required, "Duration in microseconds"
 # trace_id: string, "Trace ID hex string (null if empty)"
 # span_id: string, "Span ID hex string (null if empty)"
 # parent_span_id: string, "Parent span ID hex string"
@@ -30,10 +30,10 @@
 
 # vrl/otlp_traces.vrl - OTLP traces -> flat span event
 
-# Timestamps (nanoseconds -> milliseconds)
+# Timestamps (nanoseconds -> microseconds for precision)
 .timestamp = nanos_to_micros(.start_time_unix_nano)
-.end_timestamp = nanos_to_millis(.end_time_unix_nano)
-.duration = nanos_to_millis(.duration_ns)
+.end_timestamp = nanos_to_micros(.end_time_unix_nano)
+.duration = nanos_to_micros(.duration_ns)
 
 # Service info from resource attributes
 .service_name = get_attr(.resource.attributes, "service.name", "unknown")
